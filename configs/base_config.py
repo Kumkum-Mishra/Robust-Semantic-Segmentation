@@ -10,11 +10,11 @@ class BaseConfig:
     output_dir: str = "outputs"
 
     # Device
-    device: str = "cpu"  # Change to 'cpu' manually if needed
+    device: str = "cpu"  
 
     # Training hyperparameters
     batch_size: int = 2
-    num_epochs: int = 1
+    num_epochs: int = 2
     learning_rate: float = 0.001
     weight_decay: float = 0.0005
     patience: int = 5

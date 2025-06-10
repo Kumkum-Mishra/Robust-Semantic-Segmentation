@@ -1,3 +1,5 @@
+from torch.utils.tensorboard import SummaryWriter
+
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -6,25 +8,24 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from tqdm import tqdm
-from torch.utils.tensorboard import SummaryWriter
-import torchvision
 
 from configs.idd_config import IDDConfig
-from dataloaders.get_dataloaders import get_dataloaders
+writer = SummaryWriter(log_dir=os.path.join("runs", IDDConfig.model_name))
+
 from models.deeplabv3plus import get_deeplabv3plus
 from utils.metrics import compute_miou
 from utils.logger import save_model, log_to_console
+
+# IMPORT your new dataloader for rare-class images
+from dataloaders.rare_class_subset_loader import get_rare_class_dataloaders
 
 def train():
     # Load config and device
     config = IDDConfig()
     device = torch.device("cuda" if torch.cuda.is_available() else config.device)
 
-    # TensorBoard writer
-    writer = SummaryWriter(log_dir=os.path.join("runs", config.model_name))
-
-    # Load data
-    train_loader, val_loader = get_dataloaders(config)
+    # Load data using rare-class loader
+    train_loader, val_loader = get_rare_class_dataloaders(config, max_samples=40)
 
     # Load model
     model = get_deeplabv3plus(config.num_classes, backbone=config.backbone)
@@ -47,7 +48,7 @@ def train():
 
             optimizer.zero_grad()
             outputs = model(images)
-            if isinstance(outputs, dict):
+            if isinstance(outputs, dict):  # Fix for torchvision models
                 outputs = outputs["out"]
             loss = criterion(outputs, masks)
             loss.backward()
@@ -64,7 +65,7 @@ def train():
             for images, masks in tqdm(val_loader, desc=f"Epoch {epoch+1}/{config.num_epochs} - Validation"):
                 images, masks = images.to(device), masks.to(device).long()
                 outputs = model(images)
-                if isinstance(outputs, dict):
+                if isinstance(outputs, dict):  # Fix for torchvision models
                     outputs = outputs["out"]
                 loss = criterion(outputs, masks)
                 val_loss += loss.item()
@@ -72,28 +73,12 @@ def train():
         val_loss /= len(val_loader)
         scheduler.step(val_loss)
 
-        # TensorBoard Logging
-        writer.add_scalar('Loss/Train', train_loss, epoch)
-        writer.add_scalar('Loss/Val', val_loss, epoch)
-
-        # Optional: log predictions and masks every 5 epochs
-        if epoch % 5 == 0:
-            images_vis = images.cpu()
-            masks_vis = masks.cpu()
-            preds_vis = torch.argmax(outputs, dim=1).cpu()
-
-            writer.add_images('Inputs', images_vis, epoch)
-            writer.add_images('Ground Truth', masks_vis.unsqueeze(1) / config.num_classes, epoch)
-            writer.add_images('Predictions', preds_vis.unsqueeze(1) / config.num_classes, epoch)
-
         log_to_console(epoch, train_loss, val_loss)
 
         # Save best model
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            save_model(model, config.checkpoint_dir, config.model_name)
-
-    writer.close()
+            save_model(model, config.checkpoint_dir, config.model_name + "_rareclass")
 
 if __name__ == "__main__":
     train()
